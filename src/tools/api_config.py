@@ -9,7 +9,7 @@ import os
 from typing import Literal
 
 # API Provider type
-APIProvider = Literal["financial_datasets", "yahoo_finance"]
+APIProvider = Literal["financial_datasets", "yahoo_finance", "database"]
 
 
 def get_api_provider() -> APIProvider:
@@ -17,15 +17,26 @@ def get_api_provider() -> APIProvider:
     Determine which API provider to use based on environment variable.
 
     Returns:
+        "database" if USE_DATABASE is set to "true", "1", or "yes"
         "yahoo_finance" if USE_YAHOO_FINANCE is set to "true", "1", or "yes"
         "financial_datasets" otherwise
     """
-    use_yahoo = os.environ.get("USE_YAHOO_FINANCE", "false").lower()
+    # Check if database mode is enabled first (takes precedence)
+    use_database = os.environ.get("USE_DATABASE", "false").lower()
+    if use_database in ["true", "1", "yes", "y"]:
+        return "database"
 
+    # Check for Yahoo Finance
+    use_yahoo = os.environ.get("USE_YAHOO_FINANCE", "false").lower()
     if use_yahoo in ["true", "1", "yes", "y"]:
         return "yahoo_finance"
 
     return "financial_datasets"
+
+
+def is_using_database() -> bool:
+    """Check if database cache is being used."""
+    return get_api_provider() == "database"
 
 
 def is_using_yahoo_finance() -> bool:
@@ -47,7 +58,25 @@ def get_api_info() -> dict:
     """
     provider = get_api_provider()
 
-    if provider == "yahoo_finance":
+    if provider == "database":
+        return {
+            "provider": "Database Cache (SQLite)",
+            "cost": "Free (uses cached data)",
+            "capabilities": {
+                "historical_prices": True,
+                "financial_metrics": True,
+                "financial_statements": False,
+                "insider_trades": True,
+                "company_news": True,
+                "news_sentiment": True,
+            },
+            "limitations": [
+                "Only returns previously cached data",
+                "Requires data acquisition step before analysis",
+                "No real-time data",
+            ],
+        }
+    elif provider == "yahoo_finance":
         return {
             "provider": "Yahoo Finance (yfinance)",
             "cost": "Free",

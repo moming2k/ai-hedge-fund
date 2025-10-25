@@ -45,7 +45,9 @@ By using this software, you agree to use it solely for learning purposes.
 - [How to Install](#how-to-install)
 - [How to Run](#how-to-run)
   - [⌨️ Command Line Interface](#️-command-line-interface)
+    - [📊 Data Management: Two-Step Workflow](#-data-management-two-step-workflow-recommended-for-backtesting)
   - [🖥️ Web Application](#️-web-application)
+- [Environment Variables Reference](#environment-variables-reference)
 - [How to Contribute](#how-to-contribute)
 - [Feature Requests](#feature-requests)
 - [License](#license)
@@ -78,9 +80,14 @@ OPENAI_API_KEY=your-openai-api-key
 FINANCIAL_DATASETS_API_KEY=your-financial-datasets-api-key
 ```
 
-**Important**: You must set at least one LLM API key (e.g. `OPENAI_API_KEY`, `GROQ_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`) for the hedge fund to work. 
+**Important**: You must set at least one LLM API key (e.g. `OPENAI_API_KEY`, `GROQ_API_KEY`, `ANTHROPIC_API_KEY`, or `DEEPSEEK_API_KEY`) for the hedge fund to work.
 
-**Financial Data**: Data for AAPL, GOOGL, MSFT, NVDA, and TSLA is free and does not require an API key. For any other ticker, you will need to set the `FINANCIAL_DATASETS_API_KEY` in the .env file.
+**Financial Data Options**:
+- **Yahoo Finance (Free)**: Set `USE_YAHOO_FINANCE=true` to use free Yahoo Finance data for any ticker
+- **Financial Datasets API (Paid)**: Use `FINANCIAL_DATASETS_API_KEY` for comprehensive data including insider trades and sentiment
+- **Database Cache (Recommended for Backtesting)**: Set `USE_DATABASE=true` to use pre-cached data for 10-20x faster backtests
+
+Note: Data for AAPL, GOOGL, MSFT, NVDA, and TSLA is free with Financial Datasets API without a key.
 
 ## How to Run
 
@@ -102,6 +109,98 @@ curl -sSL https://install.python-poetry.org | python3 -
 poetry install
 ```
 
+3. Set up PostgreSQL:
+
+The system uses PostgreSQL for data caching. Choose one option:
+
+**Option A: Docker (Recommended for Development)**
+```bash
+docker run --name ai-hedge-fund-postgres \
+  -e POSTGRES_PASSWORD=your_password \
+  -e POSTGRES_DB=ai_hedge_fund \
+  -p 5432:5432 \
+  -d postgres:16
+```
+
+**Option B: Local PostgreSQL**
+```bash
+# macOS
+brew install postgresql@16
+brew services start postgresql@16
+createdb ai_hedge_fund
+
+# Ubuntu/Debian
+sudo apt update && sudo apt install postgresql
+sudo systemctl start postgresql
+sudo -u postgres createdb ai_hedge_fund
+```
+
+4. Configure database environment variables:
+
+Add to your `.env` file:
+```bash
+# PostgreSQL Configuration
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=ai_hedge_fund
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+```
+
+5. Initialize database tables:
+```bash
+export POSTGRES_PASSWORD=your_password
+cd app/backend
+python -c "from database.init_db import init_db; init_db()"
+cd ../..
+```
+
+#### 📊 Data Management: Two-Step Workflow (Recommended for Backtesting)
+
+For optimal performance, especially when running multiple backtests, we recommend using the **two-step data workflow** that separates data acquisition from analysis:
+
+**Benefits:**
+- ⚡ **10-20x faster backtests** - No API calls during analysis
+- 💰 **Reduced API costs** - Fetch data once, reuse indefinitely
+- 🔌 **Offline capability** - Run backtests without internet connection
+- 📊 **Consistent data** - All backtests use the same historical snapshot
+- 🔄 **Better iteration** - Quickly test different strategies
+
+**Step 1: Acquire and Cache Data (One-time)**
+
+```bash
+# Using Yahoo Finance (free) - recommended for most users
+poetry run python -m src.acquire_data \
+  --tickers AAPL MSFT NVDA GOOGL \
+  --start-date 2020-01-01 \
+  --end-date 2024-12-31
+
+# With environment variable
+USE_YAHOO_FINANCE=true poetry run python -m src.acquire_data \
+  --tickers AAPL MSFT NVDA \
+  --start-date 2023-01-01 \
+  --end-date 2023-12-31
+```
+
+Available options:
+- `--tickers`: Space-separated list of ticker symbols (required)
+- `--start-date`: Start date in YYYY-MM-DD format (required)
+- `--end-date`: End date in YYYY-MM-DD format (defaults to today)
+- `--force-refresh`: Re-fetch and update existing data
+- `--prices-only`: Only acquire price data (skip metrics, news, etc.)
+
+**Step 2: Run Analysis with Cached Data (Fast & Repeatable)**
+
+```bash
+# Run backtest using cached data - 10-20x faster!
+USE_DATABASE=true poetry run python src/backtester.py \
+  --ticker AAPL,MSFT,NVDA \
+  --start-date 2023-01-01 \
+  --end-date 2023-12-31
+```
+
+For detailed documentation on data caching, see [docs/DATA_CACHING.md](docs/DATA_CACHING.md).
+
 #### Run the AI Hedge Fund
 ```bash
 poetry run python src/main.py --ticker AAPL,MSFT,NVDA
@@ -120,8 +219,25 @@ poetry run python src/main.py --ticker AAPL,MSFT,NVDA --start-date 2024-01-01 --
 ```
 
 #### Run the Backtester
+
+**Standard Mode (with real-time API calls):**
 ```bash
 poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA
+```
+
+**High-Performance Mode (with cached data - recommended):**
+```bash
+# First, acquire data (one-time)
+USE_YAHOO_FINANCE=true poetry run python -m src.acquire_data \
+  --tickers AAPL MSFT NVDA \
+  --start-date 2023-01-01 \
+  --end-date 2023-12-31
+
+# Then run backtest with cached data (10-20x faster!)
+USE_DATABASE=true poetry run python src/backtester.py \
+  --ticker AAPL,MSFT,NVDA \
+  --start-date 2023-01-01 \
+  --end-date 2023-12-31
 ```
 
 **Example Output:**
@@ -129,6 +245,8 @@ poetry run python src/backtester.py --ticker AAPL,MSFT,NVDA
 
 
 Note: The `--ollama`, `--start-date`, and `--end-date` flags work for the backtester, as well!
+
+💡 **Pro Tip**: For repeated backtests with different parameters, use the two-step workflow (acquire data once, then run multiple backtests with `USE_DATABASE=true`) for significant time savings.
 
 ### 🖥️ Web Application
 
@@ -138,6 +256,48 @@ Please see detailed instructions on how to install and run the web application [
 
 <img width="1721" alt="Screenshot 2025-06-28 at 6 41 03 PM" src="https://github.com/user-attachments/assets/b95ab696-c9f4-416c-9ad1-51feb1f5374b" />
 
+
+## Environment Variables Reference
+
+The AI Hedge Fund supports several environment variables to configure data sources and behavior:
+
+### Data Source Selection
+
+| Variable | Values | Description |
+|----------|--------|-------------|
+| `USE_DATABASE` | `true`/`false` | Use cached database data (recommended for backtesting) |
+| `USE_YAHOO_FINANCE` | `true`/`false` | Use Yahoo Finance API (free, real-time data) |
+| (none) | - | Use Financial Datasets API (paid, requires API key) |
+
+**Priority**: `USE_DATABASE` > `USE_YAHOO_FINANCE` > Financial Datasets API
+
+### Example Workflows
+
+**For Data Acquisition:**
+```bash
+# Use Yahoo Finance to fetch and cache data
+USE_YAHOO_FINANCE=true poetry run python -m src.acquire_data --tickers AAPL --start-date 2023-01-01
+```
+
+**For Backtesting:**
+```bash
+# Use cached data for fast backtests
+USE_DATABASE=true poetry run python src/backtester.py --ticker AAPL --start-date 2023-01-01
+```
+
+**For Real-time Analysis:**
+```bash
+# Use Yahoo Finance for real-time data
+USE_YAHOO_FINANCE=true poetry run python src/main.py --ticker AAPL
+```
+
+### Performance Comparison
+
+| Mode | Speed | Cost | Use Case |
+|------|-------|------|----------|
+| Database Cache (`USE_DATABASE=true`) | ⚡⚡⚡ Fastest (10-20x) | Free | Backtesting, strategy iteration |
+| Yahoo Finance (`USE_YAHOO_FINANCE=true`) | ⚡⚡ Fast | Free | Real-time analysis, data acquisition |
+| Financial Datasets API | ⚡ Standard | Paid | Comprehensive data needs |
 
 ## How to Contribute
 

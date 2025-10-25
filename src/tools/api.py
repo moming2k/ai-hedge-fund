@@ -1,12 +1,13 @@
 """
 Unified API Module - Router
 
-This module routes API calls to either Financial Datasets API or Yahoo Finance
-based on the USE_YAHOO_FINANCE environment variable.
+This module routes API calls to either Financial Datasets API, Yahoo Finance, or Database
+based on environment variables.
 
 Usage:
-    - Set USE_YAHOO_FINANCE=true to use Yahoo Finance (free)
-    - Leave unset or set to false to use Financial Datasets API (paid)
+    - Set USE_DATABASE=true to use cached database data (recommended for backtesting)
+    - Set USE_YAHOO_FINANCE=true to use Yahoo Finance API (free, real-time)
+    - Leave both unset to use Financial Datasets API (paid, real-time)
 
 All existing code will continue to work without changes.
 """
@@ -27,7 +28,10 @@ from src.data.models import (
 _api_provider = get_api_provider()
 
 # Import the appropriate implementation
-if _api_provider == "yahoo_finance":
+if _api_provider == "database":
+    from src.tools import api_database as _api_impl
+    print("💾 Using Database Cache (Fast, no API calls)")
+elif _api_provider == "yahoo_finance":
     from src.tools import api_yahoo as _api_impl
     print("📊 Using Yahoo Finance API (Free)")
 else:
