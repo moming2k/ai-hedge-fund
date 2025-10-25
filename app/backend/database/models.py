@@ -266,3 +266,87 @@ class StoredInsiderTrade(Base):
     )
 
 
+class BacktestRun(Base):
+    """Table to store backtest execution runs with key metrics"""
+    __tablename__ = "backtest_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Run metadata
+    name = Column(String(200), nullable=True)  # Optional user-provided name
+    description = Column(Text, nullable=True)
+    status = Column(String(50), nullable=False, default="IDLE", index=True)  # IDLE, IN_PROGRESS, COMPLETE, ERROR
+
+    # Backtest parameters
+    tickers = Column(JSON, nullable=False)  # Array of ticker symbols
+    start_date = Column(Date, nullable=False, index=True)
+    end_date = Column(Date, nullable=False, index=True)
+    initial_capital = Column(Float, nullable=False)
+
+    # Performance metrics (summary)
+    final_portfolio_value = Column(Float, nullable=True)
+    total_return_pct = Column(Float, nullable=True)  # Percentage return
+    sharpe_ratio = Column(Float, nullable=True)
+    sortino_ratio = Column(Float, nullable=True)
+    max_drawdown = Column(Float, nullable=True)  # Percentage
+    max_drawdown_date = Column(Date, nullable=True)
+    long_short_ratio = Column(Float, nullable=True)
+    gross_exposure = Column(Float, nullable=True)
+    net_exposure = Column(Float, nullable=True)
+
+    # Configuration (stored as JSON for flexibility)
+    graph_config = Column(JSON, nullable=True)  # Nodes and edges
+    agent_models = Column(JSON, nullable=True)  # Agent model configurations
+    request_data = Column(JSON, nullable=True)  # Full request parameters
+    final_portfolio = Column(JSON, nullable=True)  # Final portfolio state (positions, cash, etc.)
+
+    # Error tracking
+    error_message = Column(Text, nullable=True)
+
+    # Indexes for efficient queries
+    __table_args__ = (
+        Index('idx_status_created', 'status', 'created_at'),
+        Index('idx_date_range', 'start_date', 'end_date'),
+    )
+
+
+class BacktestDailyResult(Base):
+    """Table to store daily results for each backtest run"""
+    __tablename__ = "backtest_daily_results"
+
+    id = Column(Integer, primary_key=True, index=True)
+    backtest_run_id = Column(Integer, ForeignKey("backtest_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+
+    # Portfolio state
+    portfolio_value = Column(Float, nullable=False)
+    cash = Column(Float, nullable=False)
+
+    # Trading activity (stored as JSON)
+    decisions = Column(JSON, nullable=True)  # Trading decisions made
+    executed_trades = Column(JSON, nullable=True)  # Actual trades executed
+    analyst_signals = Column(JSON, nullable=True)  # Agent signals/analysis
+    current_prices = Column(JSON, nullable=True)  # Prices for all tickers
+
+    # Exposure metrics
+    long_exposure = Column(Float, nullable=True)
+    short_exposure = Column(Float, nullable=True)
+    gross_exposure = Column(Float, nullable=True)
+    net_exposure = Column(Float, nullable=True)
+    long_short_ratio = Column(Float, nullable=True)
+
+    # Performance metrics
+    portfolio_return_pct = Column(Float, nullable=True)  # Cumulative return percentage
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Composite index for efficient queries
+    __table_args__ = (
+        Index('idx_backtest_date', 'backtest_run_id', 'date', unique=True),
+    )
+
+

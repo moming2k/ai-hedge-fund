@@ -203,6 +203,7 @@ async def backtest(request_data: BacktestRequest, request: Request, db: Session 
             model_name=request_data.model_name,
             model_provider=model_provider,
             request=request_data,  # Pass the full request for agent-specific model access
+            db=db,  # Pass DB session for persistence
         )
 
         # Function to detect client disconnection

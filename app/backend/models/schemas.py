@@ -289,3 +289,96 @@ class ApiKeySummaryResponse(BaseModel):
 class ApiKeyBulkUpdateRequest(BaseModel):
     """Request to update multiple API keys at once"""
     api_keys: List[ApiKeyCreateRequest]
+
+
+# Backtest Results schemas
+class BacktestRunSummaryResponse(BaseModel):
+    """Summary response for a backtest run (without daily results)"""
+    id: int
+    name: Optional[str]
+    description: Optional[str]
+    status: str
+    tickers: List[str]
+    start_date: str
+    end_date: str
+    initial_capital: float
+    final_portfolio_value: Optional[float]
+    total_return_pct: Optional[float]
+    sharpe_ratio: Optional[float]
+    sortino_ratio: Optional[float]
+    max_drawdown: Optional[float]
+    max_drawdown_date: Optional[str]
+    long_short_ratio: Optional[float]
+    gross_exposure: Optional[float]
+    net_exposure: Optional[float]
+    created_at: datetime
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    error_message: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+
+class BacktestDailyResultResponse(BaseModel):
+    """Response for a single day's backtest result"""
+    id: int
+    backtest_run_id: int
+    date: str
+    portfolio_value: float
+    cash: float
+    decisions: Optional[Dict[str, Any]]
+    executed_trades: Optional[Dict[str, Any]]
+    analyst_signals: Optional[Dict[str, Any]]
+    current_prices: Optional[Dict[str, float]]
+    long_exposure: Optional[float]
+    short_exposure: Optional[float]
+    gross_exposure: Optional[float]
+    net_exposure: Optional[float]
+    long_short_ratio: Optional[float]
+    portfolio_return_pct: Optional[float]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BacktestRunDetailResponse(BaseModel):
+    """Detailed response for a backtest run (with summary and optional daily results)"""
+    id: int
+    name: Optional[str]
+    description: Optional[str]
+    status: str
+    tickers: List[str]
+    start_date: str
+    end_date: str
+    initial_capital: float
+    final_portfolio_value: Optional[float]
+    total_return_pct: Optional[float]
+    sharpe_ratio: Optional[float]
+    sortino_ratio: Optional[float]
+    max_drawdown: Optional[float]
+    max_drawdown_date: Optional[str]
+    long_short_ratio: Optional[float]
+    gross_exposure: Optional[float]
+    net_exposure: Optional[float]
+    graph_config: Optional[Dict[str, Any]]
+    agent_models: Optional[List[Dict[str, Any]]]
+    request_data: Optional[Dict[str, Any]]
+    final_portfolio: Optional[Dict[str, Any]]
+    created_at: datetime
+    started_at: Optional[datetime]
+    completed_at: Optional[datetime]
+    error_message: Optional[str]
+    daily_results: Optional[List[BacktestDailyResultResponse]] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BacktestRunsListResponse(BaseModel):
+    """Paginated list of backtest runs"""
+    total: int
+    skip: int
+    limit: int
+    runs: List[BacktestRunSummaryResponse]

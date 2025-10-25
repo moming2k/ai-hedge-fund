@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Callable, Dict, List, Optional, Any
 import asyncio
+from sqlalchemy.orm import Session
 
 from src.tools.api import (
     get_company_news,
@@ -14,6 +15,7 @@ from src.tools.api import (
 )
 from app.backend.services.graph import run_graph_async, parse_hedge_fund_response
 from app.backend.services.portfolio import create_portfolio
+from app.backend.database.backtest_repository import BacktestRepository
 
 class BacktestService:
     """
@@ -32,10 +34,13 @@ class BacktestService:
         model_name: str = "gpt-4.1",
         model_provider: str = "OpenAI",
         request: dict = {},
+        db: Optional[Session] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
     ):
         """
         Initialize the backtest service.
-        
+
         :param graph: Pre-compiled LangGraph graph for trading decisions.
         :param portfolio: Initial portfolio state.
         :param tickers: List of tickers to backtest.
@@ -45,6 +50,9 @@ class BacktestService:
         :param model_name: Which LLM model name to use.
         :param model_provider: Which LLM provider.
         :param request: Request object containing API keys and other metadata.
+        :param db: Database session for persisting results (optional).
+        :param name: Optional name for the backtest run.
+        :param description: Optional description for the backtest run.
         """
         self.graph = graph
         self.portfolio = portfolio
@@ -56,6 +64,10 @@ class BacktestService:
         self.model_provider = model_provider
         self.request = request
         self.portfolio_values = []
+        self.db = db
+        self.name = name
+        self.description = description
+        self.backtest_run_id = None
 
     def execute_trade(self, ticker: str, action: str, quantity: float, current_price: float) -> int:
         """
@@ -284,6 +296,46 @@ class BacktestService:
         Run the backtest asynchronously with optional progress callbacks.
         Uses the pre-compiled graph for trading decisions.
         """
+        # Create backtest run in database if db session is provided
+        if self.db:
+            try:
+                # Extract graph config from request
+                graph_config = None
+                agent_models = None
+                request_data = None
+
+                if hasattr(self.request, 'graph_nodes'):
+                    graph_config = {
+                        'nodes': [node.model_dump() if hasattr(node, 'model_dump') else node for node in self.request.graph_nodes],
+                        'edges': [edge.model_dump() if hasattr(edge, 'model_dump') else edge for edge in self.request.graph_edges],
+                    }
+
+                if hasattr(self.request, 'agent_models') and self.request.agent_models:
+                    agent_models = [
+                        config.model_dump() if hasattr(config, 'model_dump') else config
+                        for config in self.request.agent_models
+                    ]
+
+                if hasattr(self.request, 'model_dump'):
+                    request_data = self.request.model_dump()
+
+                backtest_run = BacktestRepository.create_backtest_run(
+                    db=self.db,
+                    tickers=self.tickers,
+                    start_date=datetime.strptime(self.start_date, "%Y-%m-%d").date(),
+                    end_date=datetime.strptime(self.end_date, "%Y-%m-%d").date(),
+                    initial_capital=self.initial_capital,
+                    graph_config=graph_config,
+                    agent_models=agent_models,
+                    request_data=request_data,
+                    name=self.name,
+                    description=self.description,
+                )
+                self.backtest_run_id = backtest_run.id
+            except Exception as e:
+                print(f"Warning: Failed to create backtest run in database: {e}")
+                # Continue with backtest even if DB persistence fails
+
         # Pre-fetch all data at the start
         self.prefetch_data()
 
@@ -480,6 +532,29 @@ class BacktestService:
 
             backtest_results.append(date_result)
 
+            # Persist daily result to database if db session is provided
+            if self.db and self.backtest_run_id:
+                try:
+                    BacktestRepository.add_daily_result(
+                        db=self.db,
+                        backtest_run_id=self.backtest_run_id,
+                        date=datetime.strptime(current_date_str, "%Y-%m-%d").date(),
+                        portfolio_value=total_value,
+                        cash=self.portfolio["cash"],
+                        decisions=decisions,
+                        executed_trades=executed_trades,
+                        analyst_signals=analyst_signals,
+                        current_prices=current_prices,
+                        long_exposure=long_exposure,
+                        short_exposure=short_exposure,
+                        gross_exposure=gross_exposure,
+                        net_exposure=net_exposure,
+                        long_short_ratio=long_short_ratio,
+                        portfolio_return_pct=portfolio_return,
+                    )
+                except Exception as e:
+                    print(f"Warning: Failed to persist daily result for {current_date_str}: {e}")
+
             # Send intermediate result if callback provided
             if progress_callback:
                 progress_callback({
@@ -501,11 +576,50 @@ class BacktestService:
         # Store final performance metrics
         self.performance_metrics = performance_metrics
 
+        # Update backtest run with final results in database
+        if self.db and self.backtest_run_id:
+            try:
+                # Calculate total return percentage
+                total_return_pct = None
+                final_portfolio_value = None
+                if backtest_results:
+                    final_portfolio_value = backtest_results[-1]["portfolio_value"]
+                    total_return_pct = ((final_portfolio_value / self.initial_capital) - 1) * 100
+
+                # Convert max_drawdown_date to date object if it exists
+                max_drawdown_date = None
+                if performance_metrics.get("max_drawdown_date"):
+                    try:
+                        max_drawdown_date = datetime.strptime(
+                            performance_metrics["max_drawdown_date"], "%Y-%m-%d"
+                        ).date()
+                    except:
+                        pass
+
+                BacktestRepository.update_backtest_run_status(
+                    db=self.db,
+                    backtest_run_id=self.backtest_run_id,
+                    status="COMPLETE",
+                    final_portfolio_value=final_portfolio_value,
+                    total_return_pct=total_return_pct,
+                    sharpe_ratio=performance_metrics.get("sharpe_ratio"),
+                    sortino_ratio=performance_metrics.get("sortino_ratio"),
+                    max_drawdown=performance_metrics.get("max_drawdown"),
+                    max_drawdown_date=max_drawdown_date,
+                    long_short_ratio=performance_metrics.get("long_short_ratio"),
+                    gross_exposure=performance_metrics.get("gross_exposure"),
+                    net_exposure=performance_metrics.get("net_exposure"),
+                    final_portfolio=self.portfolio,
+                )
+            except Exception as e:
+                print(f"Warning: Failed to update final backtest results: {e}")
+
         return {
             "results": backtest_results,
             "performance_metrics": performance_metrics,
             "portfolio_values": self.portfolio_values,
             "final_portfolio": self.portfolio,
+            "backtest_run_id": self.backtest_run_id,  # Include the run ID in the response
         }
 
     def run_backtest_sync(self) -> Dict[str, Any]:
