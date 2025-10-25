@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON, ForeignKey, Float, Date, Index
 from sqlalchemy.sql import func
 from .connection import Base
 
@@ -112,4 +112,157 @@ class ApiKey(Base):
     last_used = Column(DateTime(timezone=True), nullable=True)  # Track usage
 
 
- 
+class HistoricalPrice(Base):
+    """Table to store historical OHLCV price data"""
+    __tablename__ = "historical_prices"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticker = Column(String(20), nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+
+    # OHLCV data
+    open = Column(Float, nullable=False)
+    high = Column(Float, nullable=False)
+    low = Column(Float, nullable=False)
+    close = Column(Float, nullable=False)
+    volume = Column(Integer, nullable=False)
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    data_source = Column(String(50), nullable=False)  # yahoo_finance, financial_datasets, etc.
+
+    # Composite index for efficient queries
+    __table_args__ = (
+        Index('idx_ticker_date', 'ticker', 'date', unique=True),
+    )
+
+
+class StoredFinancialMetrics(Base):
+    """Table to store financial metrics data"""
+    __tablename__ = "financial_metrics"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticker = Column(String(20), nullable=False, index=True)
+    report_period = Column(Date, nullable=False, index=True)
+    period = Column(String(20), nullable=False)  # TTM, FY, Q1, Q2, etc.
+    currency = Column(String(10), nullable=False)
+
+    # Valuation metrics
+    market_cap = Column(Float, nullable=True)
+    enterprise_value = Column(Float, nullable=True)
+    price_to_earnings_ratio = Column(Float, nullable=True)
+    price_to_book_ratio = Column(Float, nullable=True)
+    price_to_sales_ratio = Column(Float, nullable=True)
+    enterprise_value_to_ebitda_ratio = Column(Float, nullable=True)
+    enterprise_value_to_revenue_ratio = Column(Float, nullable=True)
+    free_cash_flow_yield = Column(Float, nullable=True)
+    peg_ratio = Column(Float, nullable=True)
+
+    # Profitability metrics
+    gross_margin = Column(Float, nullable=True)
+    operating_margin = Column(Float, nullable=True)
+    net_margin = Column(Float, nullable=True)
+    return_on_equity = Column(Float, nullable=True)
+    return_on_assets = Column(Float, nullable=True)
+    return_on_invested_capital = Column(Float, nullable=True)
+
+    # Efficiency metrics
+    asset_turnover = Column(Float, nullable=True)
+    inventory_turnover = Column(Float, nullable=True)
+    receivables_turnover = Column(Float, nullable=True)
+    days_sales_outstanding = Column(Float, nullable=True)
+    operating_cycle = Column(Float, nullable=True)
+    working_capital_turnover = Column(Float, nullable=True)
+
+    # Liquidity metrics
+    current_ratio = Column(Float, nullable=True)
+    quick_ratio = Column(Float, nullable=True)
+    cash_ratio = Column(Float, nullable=True)
+    operating_cash_flow_ratio = Column(Float, nullable=True)
+
+    # Leverage metrics
+    debt_to_equity = Column(Float, nullable=True)
+    debt_to_assets = Column(Float, nullable=True)
+    interest_coverage = Column(Float, nullable=True)
+
+    # Growth metrics
+    revenue_growth = Column(Float, nullable=True)
+    earnings_growth = Column(Float, nullable=True)
+    book_value_growth = Column(Float, nullable=True)
+    earnings_per_share_growth = Column(Float, nullable=True)
+    free_cash_flow_growth = Column(Float, nullable=True)
+    operating_income_growth = Column(Float, nullable=True)
+    ebitda_growth = Column(Float, nullable=True)
+
+    # Per-share metrics
+    payout_ratio = Column(Float, nullable=True)
+    earnings_per_share = Column(Float, nullable=True)
+    book_value_per_share = Column(Float, nullable=True)
+    free_cash_flow_per_share = Column(Float, nullable=True)
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    data_source = Column(String(50), nullable=False)
+
+    # Composite index for efficient queries
+    __table_args__ = (
+        Index('idx_ticker_report_period', 'ticker', 'report_period', 'period', unique=True),
+    )
+
+
+class StoredCompanyNews(Base):
+    """Table to store company news articles"""
+    __tablename__ = "company_news"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticker = Column(String(20), nullable=False, index=True)
+    title = Column(Text, nullable=False)
+    author = Column(String(200), nullable=True)
+    source = Column(String(200), nullable=False)
+    date = Column(Date, nullable=False, index=True)
+    url = Column(Text, nullable=False)
+    sentiment = Column(String(20), nullable=True)  # positive, negative, neutral
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    data_source = Column(String(50), nullable=False)
+
+    # Composite index for efficient queries
+    __table_args__ = (
+        Index('idx_ticker_date_news', 'ticker', 'date'),
+        Index('idx_url_unique', 'url', unique=True),
+    )
+
+
+class StoredInsiderTrade(Base):
+    """Table to store insider trading data"""
+    __tablename__ = "insider_trades"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticker = Column(String(20), nullable=False, index=True)
+    issuer = Column(String(200), nullable=True)
+    name = Column(String(200), nullable=True)
+    title = Column(String(200), nullable=True)
+    is_board_director = Column(Boolean, nullable=True)
+
+    # Transaction details
+    transaction_date = Column(Date, nullable=True, index=True)
+    transaction_shares = Column(Float, nullable=True)
+    transaction_price_per_share = Column(Float, nullable=True)
+    transaction_value = Column(Float, nullable=True)
+    shares_owned_before_transaction = Column(Float, nullable=True)
+    shares_owned_after_transaction = Column(Float, nullable=True)
+    security_title = Column(String(200), nullable=True)
+    filing_date = Column(Date, nullable=False, index=True)
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    data_source = Column(String(50), nullable=False)
+
+    # Composite index for efficient queries
+    __table_args__ = (
+        Index('idx_ticker_filing_date', 'ticker', 'filing_date'),
+        Index('idx_ticker_transaction_date', 'ticker', 'transaction_date'),
+    )
+
+
