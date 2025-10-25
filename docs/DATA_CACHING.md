@@ -6,7 +6,7 @@ This document explains how to use the two-step backtesting workflow that separat
 
 The AI Hedge Fund now supports a **two-step workflow**:
 
-1. **Step 1: Data Acquisition** - Fetch data from external APIs (Yahoo Finance or Financial Datasets) and cache it in a local SQLite database
+1. **Step 1: Data Acquisition** - Fetch data from external APIs (Yahoo Finance or Financial Datasets) and cache it in a PostgreSQL database
 2. **Step 2: Analysis** - Run backtests using the cached data from the database (no API calls)
 
 ### Benefits
@@ -16,6 +16,85 @@ The AI Hedge Fund now supports a **two-step workflow**:
 - **Offline analysis**: Run backtests without internet connection after initial data acquisition
 - **Consistent data**: All backtests use the same historical data snapshot
 - **Better testing**: Quickly iterate on trading strategies without re-fetching data
+- **Scalability**: PostgreSQL handles large datasets efficiently
+- **Multi-user support**: Multiple users can access cached data simultaneously
+
+## Prerequisites
+
+### PostgreSQL Setup
+
+Before using the data caching system, you need to have PostgreSQL installed and running.
+
+#### Option 1: Local PostgreSQL Installation
+
+**macOS (using Homebrew):**
+```bash
+brew install postgresql@16
+brew services start postgresql@16
+createdb ai_hedge_fund
+```
+
+**Ubuntu/Debian:**
+```bash
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+sudo systemctl start postgresql
+sudo -u postgres createdb ai_hedge_fund
+sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'your_password';"
+```
+
+**Windows:**
+Download and install from [PostgreSQL official site](https://www.postgresql.org/download/windows/)
+
+#### Option 2: Docker (Recommended for Development)
+
+```bash
+# Start PostgreSQL in Docker
+docker run --name ai-hedge-fund-postgres \
+  -e POSTGRES_PASSWORD=your_password \
+  -e POSTGRES_DB=ai_hedge_fund \
+  -p 5432:5432 \
+  -d postgres:16
+
+# Verify it's running
+docker ps
+```
+
+#### Option 3: Cloud Managed PostgreSQL
+
+Use managed PostgreSQL services like:
+- AWS RDS
+- Google Cloud SQL
+- Azure Database for PostgreSQL
+- DigitalOcean Managed Databases
+- Heroku Postgres
+- Supabase
+
+### Environment Variables
+
+Set the following environment variables for PostgreSQL connection:
+
+```bash
+# Option 1: Full DATABASE_URL (recommended for production)
+export DATABASE_URL="postgresql://user:password@host:port/database"
+
+# Option 2: Individual components (recommended for development)
+export POSTGRES_HOST=localhost
+export POSTGRES_PORT=5432
+export POSTGRES_DB=ai_hedge_fund
+export POSTGRES_USER=postgres
+export POSTGRES_PASSWORD=your_password
+```
+
+Add these to your `.env` file:
+```bash
+# PostgreSQL Configuration
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=ai_hedge_fund
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+```
 
 ## Architecture
 
@@ -25,7 +104,7 @@ The system supports three data sources, controlled by environment variables:
 
 | Environment Variable | Data Source | Use Case |
 |---------------------|-------------|----------|
-| `USE_DATABASE=true` | SQLite Database | Fast backtesting with cached data |
+| `USE_DATABASE=true` | PostgreSQL Database | Fast backtesting with cached data |
 | `USE_YAHOO_FINANCE=true` | Yahoo Finance API | Free, real-time data acquisition |
 | (none set) | Financial Datasets API | Paid, comprehensive data |
 
@@ -145,19 +224,21 @@ USE_DATABASE=true python -m src.backtesting.cli \
   --model claude-3-5-sonnet-20241022
 ```
 
-## Database Location
+## Database Management
 
-The SQLite database is stored at:
-```
-app/backend/hedge_fund.db
-```
+### Connecting to PostgreSQL
 
-You can inspect the database using any SQLite client:
+You can inspect the database using `psql` or any PostgreSQL client:
+
 ```bash
-sqlite3 app/backend/hedge_fund.db
+# Connect using psql
+psql -h localhost -U postgres -d ai_hedge_fund
+
+# Or if using DATABASE_URL
+psql $DATABASE_URL
 
 # View available tables
-.tables
+\dt
 
 # Query price data
 SELECT ticker, date, close FROM historical_prices WHERE ticker = 'AAPL' LIMIT 10;
@@ -166,6 +247,42 @@ SELECT ticker, date, close FROM historical_prices WHERE ticker = 'AAPL' LIMIT 10
 SELECT ticker, COUNT(*) as days, MIN(date) as start_date, MAX(date) as end_date
 FROM historical_prices
 GROUP BY ticker;
+
+# Check database size
+SELECT pg_size_pretty(pg_database_size('ai_hedge_fund'));
+
+# Exit psql
+\q
+```
+
+### Using GUI Tools
+
+Popular PostgreSQL GUI tools:
+- **pgAdmin**: Official PostgreSQL administration tool
+- **DBeaver**: Universal database tool
+- **TablePlus**: Modern database GUI (macOS/Windows)
+- **DataGrip**: JetBrains database IDE
+- **Postico**: PostgreSQL client for macOS
+
+### Database Initialization
+
+Create the database tables using Alembic migrations:
+
+```bash
+# Set environment variables first
+export POSTGRES_PASSWORD=your_password
+
+# Navigate to backend directory
+cd app/backend
+
+# Run migrations to create tables
+python -c "from database.init_db import init_db; init_db()"
+```
+
+Or manually create tables:
+```bash
+# Using psql
+psql -h localhost -U postgres -d ai_hedge_fund -c "CREATE TABLE IF NOT EXISTS ..."
 ```
 
 ## Performance Comparison
@@ -239,7 +356,7 @@ python -m src.acquire_data \
 
 4. **Check data coverage before backtesting**: Ensure you have data for your desired date range
    ```bash
-   sqlite3 app/backend/hedge_fund.db "SELECT ticker, MIN(date), MAX(date), COUNT(*) FROM historical_prices GROUP BY ticker;"
+   psql -h localhost -U postgres -d ai_hedge_fund -c "SELECT ticker, MIN(date), MAX(date), COUNT(*) FROM historical_prices GROUP BY ticker;"
    ```
 
 5. **Periodic updates**: Schedule weekly or monthly data updates to keep your cache fresh
@@ -250,11 +367,54 @@ python -m src.acquire_data \
 
 ## Troubleshooting
 
-### "Database is not available" Error
+### "PostgreSQL password is required" Error
 
-This means SQLAlchemy is not installed. Install dependencies:
+Set the `POSTGRES_PASSWORD` environment variable:
 ```bash
-pip install sqlalchemy
+export POSTGRES_PASSWORD=your_password
+
+# Or add to .env file
+echo "POSTGRES_PASSWORD=your_password" >> .env
+```
+
+### "Connection to database failed" Error
+
+Ensure PostgreSQL is running:
+```bash
+# macOS (Homebrew)
+brew services status postgresql@16
+
+# Linux
+sudo systemctl status postgresql
+
+# Docker
+docker ps | grep postgres
+```
+
+If not running, start it:
+```bash
+# macOS
+brew services start postgresql@16
+
+# Linux
+sudo systemctl start postgresql
+
+# Docker
+docker start ai-hedge-fund-postgres
+```
+
+### "Database does not exist" Error
+
+Create the database:
+```bash
+# Using createdb command
+createdb ai_hedge_fund
+
+# Or using psql
+psql -U postgres -c "CREATE DATABASE ai_hedge_fund;"
+
+# Docker
+docker exec -it ai-hedge-fund-postgres createdb -U postgres ai_hedge_fund
 ```
 
 ### "No price data found in database" Warning
@@ -264,18 +424,45 @@ You need to acquire data first:
 python -m src.acquire_data --tickers AAPL --start-date 2023-01-01 --end-date 2023-12-31
 ```
 
-### Database Locked Error
+### "psycopg2" Module Not Found
 
-If you see "database is locked", make sure only one process is writing to the database at a time. Close any SQLite browser connections.
+Install PostgreSQL dependencies:
+```bash
+poetry install
+# Or
+pip install psycopg2-binary
+```
 
 ### Resetting the Database
 
-To start fresh, delete the database file:
+To start fresh, drop and recreate the database:
 ```bash
-rm app/backend/hedge_fund.db
+# Drop database
+dropdb ai_hedge_fund
+
+# Recreate database
+createdb ai_hedge_fund
+
+# Or using psql
+psql -U postgres -c "DROP DATABASE IF EXISTS ai_hedge_fund;"
+psql -U postgres -c "CREATE DATABASE ai_hedge_fund;"
+
+# Re-run initialization
+cd app/backend
+python -c "from database.init_db import init_db; init_db()"
 ```
 
-Then re-run the initialization and data acquisition.
+Then re-run the data acquisition.
+
+### Connection Pool Errors
+
+If you see "connection pool exhausted" errors, adjust the pool settings in `app/backend/database/connection.py`:
+```python
+engine = create_engine(
+    DATABASE_URL,
+    pool_size=20,  # Increase pool size
+    max_overflow=40,  # Increase max overflow
+)
 
 ## API Reference
 

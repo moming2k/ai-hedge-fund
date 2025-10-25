@@ -109,6 +109,52 @@ curl -sSL https://install.python-poetry.org | python3 -
 poetry install
 ```
 
+3. Set up PostgreSQL:
+
+The system uses PostgreSQL for data caching. Choose one option:
+
+**Option A: Docker (Recommended for Development)**
+```bash
+docker run --name ai-hedge-fund-postgres \
+  -e POSTGRES_PASSWORD=your_password \
+  -e POSTGRES_DB=ai_hedge_fund \
+  -p 5432:5432 \
+  -d postgres:16
+```
+
+**Option B: Local PostgreSQL**
+```bash
+# macOS
+brew install postgresql@16
+brew services start postgresql@16
+createdb ai_hedge_fund
+
+# Ubuntu/Debian
+sudo apt update && sudo apt install postgresql
+sudo systemctl start postgresql
+sudo -u postgres createdb ai_hedge_fund
+```
+
+4. Configure database environment variables:
+
+Add to your `.env` file:
+```bash
+# PostgreSQL Configuration
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=ai_hedge_fund
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+```
+
+5. Initialize database tables:
+```bash
+export POSTGRES_PASSWORD=your_password
+cd app/backend
+python -c "from database.init_db import init_db; init_db()"
+cd ../..
+```
+
 #### 📊 Data Management: Two-Step Workflow (Recommended for Backtesting)
 
 For optimal performance, especially when running multiple backtests, we recommend using the **two-step data workflow** that separates data acquisition from analysis:
