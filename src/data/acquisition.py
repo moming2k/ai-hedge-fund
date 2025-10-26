@@ -17,7 +17,8 @@ try:
         HistoricalPrice,
         StoredFinancialMetrics,
         StoredCompanyNews,
-        StoredInsiderTrade
+        StoredInsiderTrade,
+        StoredLineItem
     )
     DATABASE_AVAILABLE = True
 except ImportError:
@@ -34,7 +35,11 @@ from ..tools.api_config import get_api_provider
 
 
 def _parse_date(date_str: str) -> date:
-    """Parse date string to date object"""
+    """Parse date string to date object, handling both date and datetime formats"""
+    # Handle ISO datetime formats (2024-01-01T00:00:00 or 2024-01-01T00:00:00Z)
+    if 'T' in date_str:
+        # Remove timezone indicator if present
+        date_str = date_str.split('T')[0]
     return datetime.strptime(date_str, "%Y-%m-%d").date()
 
 
@@ -411,6 +416,96 @@ def acquire_insider_trades(ticker: str, start_date: str, end_date: str, force_re
         db.close()
 
 
+def acquire_line_items(ticker: str, force_refresh: bool = False) -> int:
+    """
+    Fetch and persist financial statement line items to database.
+
+    Args:
+        ticker: Stock ticker symbol
+        force_refresh: If True, re-fetch and update existing data
+
+    Returns:
+        Number of line item records saved
+    """
+    if not DATABASE_AVAILABLE:
+        raise RuntimeError("Database is not available. Please install required dependencies.")
+
+    # Import the financial statements helper
+    from .financial_statements import fetch_financial_statements
+
+    db = SessionLocal()
+    try:
+        # Check if data already exists
+        if not force_refresh:
+            existing_count = db.query(StoredLineItem).filter(
+                StoredLineItem.ticker == ticker
+            ).count()
+
+            if existing_count > 0:
+                print(f"  {ticker}: {existing_count} line item records already exist (use force_refresh=True to update)")
+                return 0
+
+        # Fetch data from Yahoo Finance
+        print(f"  {ticker}: Fetching financial statements...")
+        statements = fetch_financial_statements(ticker)
+
+        if not any(statements.values()):
+            print(f"  {ticker}: No financial statement data available")
+            return 0
+
+        # Get data source
+        data_source = get_api_provider()
+
+        # Persist to database
+        saved_count = 0
+
+        for statement_type, line_items in statements.items():
+            for line_item_name, report_period, period_type, value, currency in line_items:
+                report_date = _parse_date(report_period)
+
+                # Check if record exists
+                existing = db.query(StoredLineItem).filter(
+                    StoredLineItem.ticker == ticker,
+                    StoredLineItem.report_period == report_date,
+                    StoredLineItem.period_type == period_type,
+                    StoredLineItem.statement_type == statement_type,
+                    StoredLineItem.line_item_name == line_item_name
+                ).first()
+
+                if existing:
+                    if force_refresh:
+                        # Update existing record
+                        existing.value = value
+                        existing.currency = currency
+                        existing.data_source = data_source
+                        saved_count += 1
+                else:
+                    # Create new record
+                    db_line_item = StoredLineItem(
+                        ticker=ticker,
+                        report_period=report_date,
+                        period_type=period_type,
+                        statement_type=statement_type,
+                        line_item_name=line_item_name,
+                        value=value,
+                        currency=currency,
+                        data_source=data_source
+                    )
+                    db.add(db_line_item)
+                    saved_count += 1
+
+        db.commit()
+        print(f"  {ticker}: Saved {saved_count} line item records")
+        return saved_count
+
+    except Exception as e:
+        db.rollback()
+        print(f"  {ticker}: Error acquiring line items: {e}")
+        raise
+    finally:
+        db.close()
+
+
 def acquire_all_data(
     tickers: list[str],
     start_date: str,
@@ -419,6 +514,7 @@ def acquire_all_data(
     include_metrics: bool = True,
     include_news: bool = True,
     include_insider_trades: bool = True,
+    include_line_items: bool = True,
     force_refresh: bool = False
 ) -> dict[str, dict[str, int]]:
     """
@@ -432,6 +528,7 @@ def acquire_all_data(
         include_metrics: Whether to fetch financial metrics
         include_news: Whether to fetch company news
         include_insider_trades: Whether to fetch insider trades
+        include_line_items: Whether to fetch financial statement line items
         force_refresh: If True, re-fetch and update existing data
 
     Returns:
@@ -459,6 +556,9 @@ def acquire_all_data(
 
             if include_insider_trades:
                 ticker_results['insider_trades'] = acquire_insider_trades(ticker, start_date, end_date, force_refresh)
+
+            if include_line_items:
+                ticker_results['line_items'] = acquire_line_items(ticker, force_refresh)
 
             results[ticker] = ticker_results
 

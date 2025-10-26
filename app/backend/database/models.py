@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON, ForeignKey, Float, Date, Index
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Text, Boolean, JSON, ForeignKey, Float, Date, Index
 from sqlalchemy.sql import func
 from .connection import Base
 
@@ -125,7 +125,7 @@ class HistoricalPrice(Base):
     high = Column(Float, nullable=False)
     low = Column(Float, nullable=False)
     close = Column(Float, nullable=False)
-    volume = Column(Integer, nullable=False)
+    volume = Column(BigInteger, nullable=False)
 
     # Metadata
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -263,6 +263,32 @@ class StoredInsiderTrade(Base):
     __table_args__ = (
         Index('idx_ticker_filing_date', 'ticker', 'filing_date'),
         Index('idx_ticker_transaction_date', 'ticker', 'transaction_date'),
+    )
+
+
+class StoredLineItem(Base):
+    """Table to store financial statement line items (Income Statement, Balance Sheet, Cash Flow)"""
+    __tablename__ = "line_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ticker = Column(String(20), nullable=False, index=True)
+    report_period = Column(Date, nullable=False, index=True)
+    period_type = Column(String(20), nullable=False)  # annual, quarterly
+    statement_type = Column(String(50), nullable=False)  # income_statement, balance_sheet, cash_flow
+
+    # Line item details
+    line_item_name = Column(String(200), nullable=False, index=True)  # e.g., "Total Revenue", "Free Cash Flow"
+    value = Column(Float, nullable=True)
+    currency = Column(String(10), nullable=True)
+
+    # Metadata
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    data_source = Column(String(50), nullable=False)
+
+    # Composite index for efficient queries
+    __table_args__ = (
+        Index('idx_ticker_period_statement', 'ticker', 'report_period', 'statement_type'),
+        Index('idx_ticker_line_item', 'ticker', 'line_item_name'),
     )
 
 

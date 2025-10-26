@@ -101,6 +101,13 @@ Environment Variables:
         help="Skip insider trades acquisition"
     )
 
+    parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Skip confirmation prompt"
+    )
+
     return parser.parse_args()
 
 
@@ -177,10 +184,11 @@ def main():
     print()
 
     # Confirm before proceeding
-    response = input("Proceed with data acquisition? (y/N): ")
-    if response.lower() not in ['y', 'yes']:
-        print("Cancelled.")
-        sys.exit(0)
+    if not args.yes:
+        response = input("Proceed with data acquisition? (y/N): ")
+        if response.lower() not in ['y', 'yes']:
+            print("Cancelled.")
+            sys.exit(0)
 
     # Acquire data
     try:

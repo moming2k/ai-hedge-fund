@@ -126,7 +126,7 @@ def get_insider_trades(
     Returns:
         List of InsiderTrade objects (empty for Yahoo Finance)
     """
-    return _api_impl.get_insider_trades(ticker, end_date, start_date, limit, api_key)
+    return _api_impl.get_insider_trades(ticker, end_date, start_date, api_key)
 
 
 def get_company_news(
@@ -151,7 +151,7 @@ def get_company_news(
     Returns:
         List of CompanyNews objects
     """
-    return _api_impl.get_company_news(ticker, end_date, start_date, limit, api_key)
+    return _api_impl.get_company_news(ticker, end_date, start_date, api_key)
 
 
 def get_market_cap(

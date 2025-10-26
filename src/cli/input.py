@@ -106,6 +106,19 @@ def select_model(use_ollama: bool, model_flag: str | None = None) -> tuple[str, 
     model_name: str = ""
     model_provider: str | None = None
 
+    # Check for environment variable first (for headless mode)
+    import os
+    env_model = os.getenv("AI_MODEL")
+    if env_model:
+        model = find_model_by_name(env_model)
+        if model:
+            print(
+                f"\nUsing model from AI_MODEL env var: {Fore.CYAN}{model.provider.value}{Style.RESET_ALL} - {Fore.GREEN + Style.BRIGHT}{model.model_name}{Style.RESET_ALL}\n"
+            )
+            return model.model_name, model.provider.value
+        else:
+            print(f"{Fore.YELLOW}Warning: Model '{env_model}' from AI_MODEL not found. Continuing with selection...{Style.RESET_ALL}")
+
     if model_flag:
         model = find_model_by_name(model_flag)
         if model:

@@ -17,7 +17,8 @@ try:
         HistoricalPrice,
         StoredFinancialMetrics,
         StoredCompanyNews,
-        StoredInsiderTrade
+        StoredInsiderTrade,
+        StoredLineItem
     )
     DATABASE_AVAILABLE = True
 except ImportError:
@@ -27,7 +28,8 @@ from ..data.models import (
     Price,
     FinancialMetrics,
     CompanyNews,
-    InsiderTrade
+    InsiderTrade,
+    LineItem
 )
 
 
@@ -321,6 +323,133 @@ def get_insider_trades(
         db.close()
 
 
+def prices_to_df(prices: list[Price]):
+    """
+    Convert list of Price objects to pandas DataFrame.
+
+    Args:
+        prices: List of Price objects
+
+    Returns:
+        pandas DataFrame with OHLCV data indexed by date
+    """
+    import pandas as pd
+
+    if not prices:
+        return pd.DataFrame()
+
+    # Convert to DataFrame
+    df = pd.DataFrame([p.model_dump() for p in prices])
+    df['time'] = pd.to_datetime(df['time'])
+    df.set_index('time', inplace=True)
+    df.index.name = 'Date'
+
+    return df
+
+
+def get_market_cap(
+    ticker: str,
+    end_date: str,
+    api_key: Optional[str] = None
+) -> Optional[float]:
+    """
+    Get market capitalization from database.
+
+    Args:
+        ticker: Stock ticker symbol
+        end_date: End date in YYYY-MM-DD format
+        api_key: Ignored (for interface compatibility)
+
+    Returns:
+        Market cap as float, or None if not available
+    """
+    # Get most recent financial metrics to extract market cap
+    metrics = get_financial_metrics(ticker, end_date, limit=1, api_key=api_key)
+
+    if metrics and len(metrics) > 0 and metrics[0].market_cap:
+        return metrics[0].market_cap
+
+    return None
+
+
+def search_line_items(
+    ticker: str,
+    line_items: list[str],
+    end_date: str,
+    period: Optional[str] = None,
+    limit: Optional[int] = None,
+    api_key: Optional[str] = None
+) -> list[LineItem]:
+    """
+    Search for specific line items in financial statements from database.
+
+    Args:
+        ticker: Stock ticker symbol
+        line_items: List of line item names to search for
+        end_date: End date in YYYY-MM-DD format
+        period: Period type ('annual', 'quarterly', or None for both)
+        limit: Maximum number of periods to return per line item
+        api_key: Ignored (for interface compatibility)
+
+    Returns:
+        List of LineItem objects grouped by report period
+    """
+    if not DATABASE_AVAILABLE:
+        raise RuntimeError("Database is not available. Run data acquisition first.")
+
+    db = SessionLocal()
+    try:
+        end = _parse_date(end_date)
+
+        # Query line items from database
+        query = db.query(StoredLineItem).filter(
+            StoredLineItem.ticker == ticker,
+            StoredLineItem.report_period <= end,
+            StoredLineItem.line_item_name.in_(line_items)
+        )
+
+        if period:
+            query = query.filter(StoredLineItem.period_type == period)
+
+        # Order by report period descending to get most recent first
+        query = query.order_by(StoredLineItem.report_period.desc())
+
+        db_line_items = query.all()
+
+        if not db_line_items:
+            return []
+
+        # Group line items by report period to create LineItem objects
+        # Each LineItem object represents one reporting period with multiple line items
+        periods_dict: dict[str, dict] = {}
+
+        for item in db_line_items:
+            period_key = f"{_format_date(item.report_period)}_{item.period_type}"
+
+            if period_key not in periods_dict:
+                periods_dict[period_key] = {
+                    'ticker': ticker,
+                    'report_period': _format_date(item.report_period),
+                    'period': item.period_type,
+                    'currency': item.currency or 'USD'
+                }
+
+            # Add line item as dynamic field
+            periods_dict[period_key][item.line_item_name] = item.value
+
+        # Convert to LineItem objects
+        result = [LineItem(**period_data) for period_data in periods_dict.values()]
+
+        # Apply limit if specified (limit number of periods)
+        if limit and len(result) > limit:
+            result = result[:limit]
+
+        return result
+
+    finally:
+        db.close()
+
+
 def get_price_data(ticker: str, start_date: str, end_date: str, api_key: Optional[str] = None):
     """
     Get historical price data as pandas DataFrame from database.
@@ -334,17 +463,5 @@ def get_price_data(ticker: str, start_date: str, end_date: str, api_key: Optiona
     Returns:
         pandas DataFrame with OHLCV data
     """
-    import pandas as pd
-
     prices = get_prices(ticker, start_date, end_date, api_key)
-
-    if not prices:
-        return pd.DataFrame()
-
-    # Convert to DataFrame
-    df = pd.DataFrame([p.model_dump() for p in prices])
-    df['time'] = pd.to_datetime(df['time'])
-    df.set_index('time', inplace=True)
-    df.index.name = 'Date'
-
-    return df
+    return prices_to_df(prices)
